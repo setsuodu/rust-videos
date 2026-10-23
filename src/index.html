@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>暴风影音</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:#0a0a0a;color:#fff;font-family:"Segoe UI Variable","Segoe UI","Microsoft YaHei UI",sans-serif;user-select:none}
+#main{position:absolute;top:36px;left:0;right:0;bottom:56px;display:flex;min-height:0}
+#stage{flex:1;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;background:#000;overflow:hidden}
+#stage img,#stage video{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;outline:none;background:#000}
+.bar{position:absolute;left:0;right:0;padding:10px 16px;display:flex;align-items:center;gap:12px;background:linear-gradient(rgba(0,0,0,.55),transparent);transition:opacity .25s;z-index:5;pointer-events:none}
+.bar .btn,.bar #name{pointer-events:auto}
+#top{top:0;left:0;right:0;padding-left:12px;z-index:5}
+#name{font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
+.btn{background:rgba(255,255,255,.1);border:0;color:#fff;border-radius:6px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:rgba(255,255,255,.2)}
+.btn-icon{padding:6px 8px}
+body.idle .bar{opacity:0}
+body.idle:not(.empty){cursor:none}
+
+/* 全屏：只保留画面+底栏，藏标题栏 */
+body.is-fs #titlebar{display:none!important}
+body.is-fs #main{top:0}
+body.is-fs #vbar{z-index:40}
+body.is-fs #ctxMenu,body.is-fs #appMenu{z-index:50}
+
+body.empty #top{opacity:0;pointer-events:none}
+body.empty #logoBtn{opacity:1;pointer-events:auto}
+/* 空状态：居中 Logo + 打开文件，干净 */
+#msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;z-index:3;background:radial-gradient(ellipse 60% 50% at 50% 45%,rgba(20,60,120,.35),transparent 70%),#0a0a0a}
+#msg[hidden]{display:none}
+#msg .brand{display:flex;align-items:center;gap:12px;color:#2b88d8}
+#msg .brand svg{width:40px;height:40px}
+#msg .brand span{font-size:28px;font-weight:600;letter-spacing:2px}
+#openMain{margin-top:8px;padding:8px 20px;font-size:13px;border:1px solid rgba(255,255,255,.28);border-radius:4px;background:transparent;color:rgba(255,255,255,.85);cursor:pointer;font:inherit;display:inline-flex;align-items:center;gap:8px}
+#openMain:hover{border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.06)}
+#toast{position:absolute;bottom:72px;left:50%;transform:translateX(-50%);background:rgba(40,40,40,.95);padding:10px 18px;border-radius:8px;font-size:13px;z-index:9;box-shadow:0 4px 18px rgba(0,0,0,.5)}
+#toast[hidden]{display:none}
+/* 底栏：常驻实底，中间大圆播放键（对齐常见播放器） */
+#vbar{position:fixed;left:0;right:0;bottom:0;z-index:15;height:56px;box-sizing:border-box;background:#2a2a2a;border-top:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;justify-content:center}
+#vbar .vseek-wrap{position:absolute;left:0;right:0;top:-6px;height:14px;display:flex;align-items:center;padding:0;pointer-events:none}
+#vbar .vseek-wrap #vseek{pointer-events:auto}
+#vbar.no-media .vseek-wrap{visibility:hidden}
+#vseek{-webkit-appearance:none;appearance:none;width:100%;height:14px;border-radius:0;background:transparent;outline:none;cursor:pointer;margin:0;padding:0}
+#vseek::-webkit-slider-runnable-track{height:3px;border-radius:1px;background:linear-gradient(to right,#2b88d8 0%,#2b88d8 var(--seek-pct,0%),rgba(255,255,255,.22) var(--seek-pct,0%),rgba(255,255,255,.22) 100%)}
+#vseek::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:#2b88d8;cursor:pointer;margin-top:-4.5px;box-shadow:0 0 0 2px rgba(43,136,216,.3);border:0}
+#vseek::-moz-range-track{height:3px;border-radius:1px;background:rgba(255,255,255,.22)}
+#vseek::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#2b88d8;border:0;cursor:pointer}
+#vrow{display:flex;align-items:center;padding:0 12px;height:56px;width:100%;box-sizing:border-box}
+.vbtn{width:36px;height:36px;border:0;border-radius:50%;background:transparent;color:rgba(255,255,255,.85);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.vbtn svg{display:block;fill:currentColor}
+.vbtn:hover{background:rgba(255,255,255,.1)}
+.vbtn.active{color:#4fc3f7}
+#vplay.main-play{width:44px;height:44px;background:#2b88d8;color:#fff;margin:0 4px}
+#vplay.main-play:hover{background:#3a97e6}
+#vplay.main-play svg{width:22px;height:22px}
+#vprev,#vnext{width:36px;height:36px}
+#vbar.no-media #vprev,#vbar.no-media #vnext{display:none}
+#vprev:disabled,#vnext:disabled{opacity:.35;pointer-events:none}
+#vtime{font-size:12px;opacity:.7;font-variant-numeric:tabular-nums;min-width:88px;margin:0 8px;flex-shrink:0}
+#vvol{-webkit-appearance:none;appearance:none;width:72px;height:3px;border-radius:2px;background:linear-gradient(to right,#fff 0%,#fff var(--vol-pct,100%),rgba(255,255,255,.2) var(--vol-pct,100%),rgba(255,255,255,.2) 100%);outline:none;cursor:pointer}
+#vvol::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:#fff;cursor:pointer}
+.vspacer{flex:1}
+#listToggle{height:32px;padding:0 12px;border:1px solid rgba(255,255,255,.2);border-radius:4px;background:transparent;color:rgba(255,255,255,.85);font:inherit;font-size:12px;cursor:pointer;flex-shrink:0}
+#listToggle:hover,#listToggle[aria-pressed="true"]{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.35)}
+#settingsPanel{position:absolute;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+#settingsPanel[hidden]{display:none}
+#propsPanel{position:absolute;inset:0;z-index:22;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+#propsPanel[hidden]{display:none}
+.props-card{background:#2a2a2a;border-radius:12px;padding:20px 24px;width:min(440px,92vw);max-height:80vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.props-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.props-icon{width:48px;height:48px;border-radius:10px;background:#2b88d8;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.props-icon svg{width:28px;height:28px;fill:#fff}
+.props-title{font-size:14px;font-weight:600;line-height:1.4;word-break:break-all}
+.props-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;font-size:13px;margin-bottom:14px}
+.props-grid .full{grid-column:1/-1}
+.props-label{opacity:.55;font-size:12px;margin-bottom:2px}
+.props-val{opacity:.95;word-break:break-all;line-height:1.35}
+.props-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+.settings-card{background:#2a2a2a;border-radius:12px;padding:20px 24px;min-width:320px;max-width:420px;max-height:80vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.settings-title{font-size:15px;margin-bottom:14px;opacity:.9;display:flex;align-items:center;gap:8px}
+.settings-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:10px 0;opacity:.85;border-bottom:1px solid rgba(255,255,255,.08);gap:16px}
+.settings-row .key{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;opacity:.95;white-space:nowrap;background:rgba(255,255,255,.08);padding:2px 8px;border-radius:4px}
+.settings-section{font-size:12px;opacity:.5;margin:14px 0 4px}
+.settings-actions{margin-top:16px;display:flex;justify-content:flex-end}
+#ctxMenu,#appMenu{position:fixed;z-index:60;min-width:160px;background:#2d2d2d;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:4px 0;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none}
+#ctxMenu.show,#appMenu.show{display:block}
+#ctxMenu button,#appMenu button{display:block;width:100%;text-align:left;background:transparent;border:0;color:#fff;font:inherit;font-size:13px;padding:8px 16px;cursor:pointer}
+#ctxMenu button:hover,#appMenu button:hover{background:rgba(255,255,255,.12)}
+#appMenu .sep{height:1px;margin:4px 0;background:rgba(255,255,255,.1)}
+/* ===== 自绘标题栏（无系统边框）：图标在最顶左角 ===== */
+#titlebar{
+  position:fixed;top:0;left:0;right:0;height:36px;z-index:50;
+  display:flex;align-items:center;
+  background:#1c1c1c;border-bottom:1px solid rgba(255,255,255,.06);
+  user-select:none;
+}
+#logoBtn{
+  width:36px;height:36px;padding:0;margin:0;border:0;border-radius:0;
+  background:transparent;color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;flex-shrink:0;
+}
+#logoBtn svg{display:block;width:18px;height:18px}
+#logoBtn:hover,#logoBtn.active{background:rgba(255,255,255,.12)}
+#titlebarDrag{
+  flex:1;height:100%;display:flex;align-items:center;
+  padding:0 8px;min-width:0;
+}
+#titlebarTitle{
+  font-size:12px;opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  pointer-events:none;
+}
+#winControls{display:flex;height:100%;flex-shrink:0}
+#winControls button{
+  width:46px;height:100%;border:0;background:transparent;color:#fff;
+  font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  line-height:1;
+}
+#winControls button:hover{background:rgba(255,255,255,.1)}
+#winClose:hover{background:#e81123!important}
+body.empty #logoBtn{opacity:1;pointer-events:auto}
+#editBtn[disabled]{opacity:.35;pointer-events:none}
+#editPanel{position:absolute;inset:0;z-index:21;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+#editPanel[hidden]{display:none}
+.edit-card{background:#2a2a2a;border-radius:12px;padding:20px 24px;width:min(440px,92vw);max-height:85vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.edit-title{font-size:15px;margin-bottom:6px;opacity:.95}
+.edit-hint{font-size:12px;opacity:.55;margin-bottom:14px;line-height:1.5}
+.edit-block{border-top:1px solid rgba(255,255,255,.08);padding:12px 0}
+.edit-block h4{font-size:13px;font-weight:600;margin-bottom:8px;opacity:.9}
+.edit-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.edit-row label{font-size:12px;opacity:.7;min-width:52px}
+.edit-row input,.edit-row select{background:#3a3a3a;border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;min-width:120px;color-scheme:dark}
+.edit-row select{width:auto;max-width:100%;cursor:pointer}
+.edit-row select option{background:#2a2a2a;color:#fff}
+.edit-row input{width:100px}
+.edit-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.edit-actions .btn{font-size:12px}
+.edit-actions .btn.primary{background:#2b88d8}
+.edit-actions .btn.primary:hover{background:#3a97e6}
+.edit-actions .btn:disabled{opacity:.35;pointer-events:none}
+#ffmpegWarn{background:rgba(180,80,40,.25);border:1px solid rgba(255,140,60,.35);border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5;margin-bottom:12px;color:#ffcc99}
+#ffmpegWarn[hidden]{display:none}
+#ffmpegWarn a{color:#7ec8ff}
+.edit-card{position:relative}
+#editBusy{position:absolute;inset:0;z-index:5;background:rgba(30,30,30,.82);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+#editBusy[hidden]{display:none}
+.edit-spinner{width:36px;height:36px;border:3px solid rgba(255,255,255,.2);border-top-color:#4fc3f7;border-radius:50%;animation:editspin .8s linear infinite}
+@keyframes editspin{to{transform:rotate(360deg)}}
+#editBusyText{font-size:13px;opacity:.9}
+/* 播放列表：右侧扁平列表，无文件夹嵌套 */
+#playlist{width:0;flex-shrink:0;overflow:hidden;background:#1e1e1e;border-left:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;transition:width .2s ease;z-index:8}
+#playlist.open{width:280px}
+#playlistHeader,#playlistBody{min-width:280px;box-sizing:border-box}
+#playlistBody{flex:1;overflow-y:auto}
+#playlistHeader{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0}
+#playlistTitle{font-size:13px;opacity:.9;flex:1}
+#playlistCount{font-size:12px;opacity:.55}
+#playlistClose{width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:#fff;cursor:pointer;font-size:16px;line-height:1}
+#playlistClose:hover{background:rgba(255,255,255,.12)}
+#playlistBody{flex:1;overflow-y:auto;padding:4px 0}
+.plist-item{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:default;font-size:13px;border-left:3px solid transparent;min-height:36px}
+.plist-item:hover{background:rgba(255,255,255,.06)}
+.plist-item.selected{background:rgba(255,255,255,.1)}
+.plist-item.missing .pname{opacity:.45;text-decoration:line-through}
+.plist-item .miss{color:#e57373;font-size:12px;flex-shrink:0;margin-right:4px}
+.plist-item.active{background:rgba(43,136,216,.22);border-left-color:#2b88d8}
+.plist-item.active.selected{background:rgba(43,136,216,.28)}
+.plist-item .idx{font-size:11px;opacity:.45;min-width:28px;text-align:right;font-variant-numeric:tabular-nums}
+.plist-item .pname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plist-item .pkind{font-size:10px;opacity:.4;text-transform:uppercase;flex-shrink:0}
+.plist-folder{display:flex;align-items:center;gap:6px;padding:8px 12px 4px;font-size:12px;opacity:.85;cursor:pointer;user-select:none}
+.plist-folder:hover{background:rgba(255,255,255,.05)}
+.plist-folder.selected{background:rgba(43,136,216,.18)}
+.plist-folder .ftwist{width:14px;font-size:10px;opacity:.7;flex-shrink:0}
+.plist-folder .fname{font-weight:600;opacity:.95;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plist-folder .fcount{opacity:.5;font-size:11px;flex-shrink:0}
+.plist-item.child{padding-left:28px}
+.plist-item.child .idx{min-width:22px}
+.plist-item{cursor:grab}
+.plist-item.dragging{opacity:.45}
+.plist-item.drag-over{border-top:2px solid #2b88d8}
+.plist-folder.drag-over{border-top:2px solid #2b88d8}
+#listCtxMenu{position:fixed;z-index:60;min-width:160px;background:#2d2d2d;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:4px 0;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none}
+#listCtxMenu.show{display:block}
+#listCtxMenu button{display:block;width:100%;text-align:left;background:transparent;border:0;color:#fff;font:inherit;font-size:13px;padding:8px 16px;cursor:pointer}
+#listCtxMenu button:hover{background:rgba(255,255,255,.12)}
+#listCtxMenu button:disabled{opacity:.4;pointer-events:none}
+#listCtxMenu .sep{height:1px;margin:4px 0;background:rgba(255,255,255,.1)}
+@media(max-width:720px){
+  body.playlist-open #playlist.open{width:min(280px,100%)}
+}
+
+</style>
+</head>
+<body class="empty">
+<!-- 自绘标题栏：最顶左角图标点出菜单 -->
+<div id="titlebar">
+<button type="button" id="logoBtn" title="菜单" aria-label="菜单" aria-haspopup="true">
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".35"/></svg>
+</button>
+<div id="titlebarDrag"><span id="titlebarTitle">暴风影音</span></div>
+<div id="winControls">
+<button type="button" id="winMin" title="最小化" aria-label="最小化">─</button>
+<button type="button" id="winMax" title="最大化" aria-label="最大化">□</button>
+<button type="button" id="winClose" title="关闭" aria-label="关闭">✕</button>
+</div>
+</div>
+<div id="main"><div id="stage"><div id="msg">
+<div class="brand"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".35"/></svg><span>暴风影音</span></div>
+<button id="openMain" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>打开文件</button>
+</div>
+<div id="top" class="bar">
+<div id="name"></div></div>
+</div>
+<div id="playlist" aria-label="播放列表">
+<div id="playlistHeader">
+<span id="playlistTitle">播放列表</span>
+<span id="playlistCount" hidden>0</span>
+<button type="button" id="playlistClose" title="关闭" aria-label="关闭播放列表">×</button>
+</div>
+<div id="playlistBody"></div>
+</div>
+</div>
+<div id="vbar" class="no-media">
+<div class="vseek-wrap"><input type="range" id="vseek" min="0" max="1000" value="0" step="1" aria-label="进度"></div>
+<div id="vrow">
+<button type="button" class="vbtn" id="vmute" title="静音" aria-label="静音"><svg id="vmuteIcon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></button>
+<input type="range" id="vvol" min="0" max="100" value="100" step="1" aria-label="音量">
+<span id="vtime">0:00 / 0:00</span>
+<div class="vspacer"></div>
+<button type="button" class="vbtn" id="vprev" title="上一个" aria-label="上一个"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
+<button type="button" class="vbtn main-play" id="vplay" title="播放 / 暂停" aria-label="播放"><svg id="vplayIcon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+<button type="button" class="vbtn" id="vnext" title="下一个" aria-label="下一个"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+<div class="vspacer"></div>
+<button type="button" class="vbtn" id="playModeBtn" title="默认：播完停止（点击切换）" aria-label="播放模式"><svg id="playModeIcon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg></button>
+<button type="button" id="listToggle" title="播放列表 (L)" aria-pressed="false">列表</button>
+</div>
+</div>
+<div id="toast" hidden></div>
+<div id="propsPanel" hidden>
+<div class="props-card" role="dialog" aria-label="属性">
+<div class="props-head">
+<div class="props-icon"><svg viewBox="0 0 24 24"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg></div>
+<div class="props-title" id="propsName">—</div>
+</div>
+<div class="props-grid">
+<div><div class="props-label">类型</div><div class="props-val" id="propsType">视频</div></div>
+<div><div class="props-label">分辨率</div><div class="props-val" id="propsRes">—</div></div>
+<div><div class="props-label">时长</div><div class="props-val" id="propsDur">—</div></div>
+<div><div class="props-label">帧速率</div><div class="props-val" id="propsFps">—</div></div>
+<div><div class="props-label">大小</div><div class="props-val" id="propsSize">—</div></div>
+<div><div class="props-label">码率</div><div class="props-val" id="propsBitrate">—</div></div>
+<div class="full"><div class="props-label">位置</div><div class="props-val" id="propsPath">—</div></div>
+</div>
+<div class="props-actions"><button type="button" class="btn" id="propsClose">确定</button></div>
+</div>
+</div>
+<div id="settingsPanel" hidden>
+<div class="settings-card" role="dialog" aria-label="关于">
+<div class="settings-title">关于 暴风影音</div>
+<div class="settings-row"><span>客户端版本</span><span id="appVersion">—</span></div>
+<div class="settings-section">快捷键</div>
+<div class="settings-row"><span>快退 / 快进 5 秒</span><span class="key">← →</span></div>
+<div class="settings-row"><span>音量</span><span class="key">滚轮</span></div>
+<div class="settings-row"><span>列表选中 / 播放</span><span class="key">单击 · 双击</span></div>
+<div class="settings-row"><span>打开文件</span><span class="key">Ctrl+O · 菜单</span></div>
+<div class="settings-row"><span>从列表移除</span><span class="key">Delete</span></div>
+<div class="settings-row"><span>播放 / 暂停</span><span class="key">Space</span></div>
+<div class="settings-row"><span>全屏 / 退出全屏</span><span class="key">Enter · 双击画面 · Esc</span></div>
+<div class="settings-row"><span>播放列表</span><span class="key">L</span></div>
+<div class="settings-row"><span>退出全屏 / 关闭面板</span><span class="key">Esc</span></div>
+<div class="settings-row"><span>退出软件</span><span class="key">Alt+F4 · 菜单</span></div>
+<div class="settings-row"><span>截图（名称_mmss）</span><span class="key">F5</span></div>
+<div class="settings-row"><span>切换播放模式</span><span class="key">底栏图标</span></div>
+<div class="settings-actions"><button class="btn" id="settingsClose">关闭</button></div>
+</div>
+</div>
+<div id="editPanel" hidden>
+<div class="edit-card" role="dialog" aria-label="视频编辑">
+<div class="edit-title">视频编辑</div>
+<div id="editBusy" hidden>
+<div class="edit-spinner" aria-hidden="true"></div>
+<div id="editBusyText">正在处理…</div>
+</div>
+<div class="edit-hint">基于本机 ffmpeg（与 ImageStudio 相同能力）。输出保存在原文件同目录，不覆盖原文件。</div>
+<div id="ffmpegWarn" hidden>未检测到 ffmpeg，相关功能不可用。请安装并加入 PATH 后重启本软件。<br><a href="https://ffmpeg.org/download.html" target="_blank" rel="noopener">ffmpeg.org/download</a> · Windows 可用 <a href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" rel="noopener">gyan.dev builds</a></div>
+<div class="edit-block">
+<h4>视频裁剪（时间）</h4>
+<div class="edit-row"><label>起点</label><input type="number" id="trimStart" min="0" step="0.1" value="0"><span style="opacity:.5;font-size:12px">秒</span>
+<button type="button" class="btn" id="trimUseCurStart" style="padding:4px 8px;font-size:12px">用当前时间</button></div>
+<div class="edit-row"><label>终点</label><input type="number" id="trimEnd" min="0" step="0.1" value=""><span style="opacity:.5;font-size:12px">秒（空=到结尾）</span>
+<button type="button" class="btn" id="trimUseCurEnd" style="padding:4px 8px;font-size:12px">用当前时间</button></div>
+<div class="edit-actions"><button type="button" class="btn primary" id="runTrim">裁剪</button></div>
+</div>
+<div class="edit-block">
+<h4>修改码率</h4>
+<div class="edit-row"><label>码率</label><input type="number" id="bitrateKbps" min="100" max="50000" step="100" value="3000"><span style="opacity:.5;font-size:12px">kbps（输出 MP4）</span></div>
+<div class="edit-actions"><button type="button" class="btn primary" id="runBitrate">改码率</button></div>
+</div>
+<div class="edit-block">
+<h4>水平等分</h4>
+<div class="edit-row"><label>输出</label>
+<select id="splitSide"><option value="both">左右各一份</option><option value="left">仅左半</option><option value="right">仅右半</option></select>
+</div>
+<div class="edit-actions"><button type="button" class="btn primary" id="runSplit">切割</button></div>
+</div>
+<div class="edit-block">
+<h4>修改画面比例</h4>
+<div class="edit-row"><label>目标</label>
+<select id="aspectRatio">
+<option value="16:9" selected>16:9（宽屏）</option>
+<option value="9:16">9:16（竖屏）</option>
+<option value="4:3">4:3（横屏）</option>
+<option value="3:4">3:4（竖屏）</option>
+<option value="3:2">3:2（横写真）</option>
+<option value="2:3">2:3（竖写真）</option>
+<option value="2:1">2:1（横长）</option>
+<option value="1:2">1:2（竖长）</option>
+<option value="21:9">21:9（超宽）</option>
+<option value="9:21">9:21（超竖）</option>
+<option value="1:1">1:1（正方形）</option>
+</select>
+</div>
+<div class="edit-row"><label>方式</label>
+<select id="aspectMode">
+<option value="stretch" selected>缩放拉伸（不裁不加黑边）</option>
+<option value="crop">裁切铺满</option>
+<option value="pad">黑边补齐</option>
+</select>
+</div>
+<div class="edit-actions"><button type="button" class="btn primary" id="runAspect">改比例</button></div>
+</div>
+<div class="settings-actions"><button class="btn" id="editClose">关闭</button></div>
+</div>
+</div>
+<div id="appMenu" role="menu">
+<button type="button" id="menuOpenFile" role="menuitem">打开文件</button>
+<button type="button" id="menuOpenFolder" role="menuitem">打开文件夹</button>
+<div class="sep" role="separator"></div>
+<button type="button" id="menuCheckUpdate" role="menuitem">检查更新</button>
+<button type="button" id="menuAbout" role="menuitem">关于</button>
+<div class="sep" role="separator"></div>
+<button type="button" id="menuQuit" role="menuitem">退出</button>
+</div>
+<div id="ctxMenu" role="menu">
+<button type="button" id="ctxOpen" role="menuitem">打开</button>
+<button type="button" id="ctxOpenFolder" role="menuitem">打开文件夹</button>
+<button type="button" id="ctxFs" role="menuitem">全屏</button>
+<button type="button" id="ctxProps" role="menuitem">属性</button>
+</div>
+<div id="listCtxMenu" role="menu">
+<button type="button" id="listCtxPlay" role="menuitem">播放</button>
+<button type="button" id="listCtxDelete" role="menuitem">从列表移除</button>
+<div class="sep" role="separator"></div>
+<button type="button" id="listCtxSave" role="menuitem">保存列表</button>
+<button type="button" id="listCtxClear" role="menuitem">清空列表</button>
+<div class="sep" role="separator"></div>
+<button type="button" id="listCtxReveal" role="menuitem">打开文件位置</button>
+</div>
+<script>
+(()=>{
+const APP_VERSION='__APP_VERSION__';
+let files=[],cur=0,selected=-1,mediaRev=0,allowAutoplay=false,mediaArmed=false;
+const $=id=>document.getElementById(id);
+const stage=$('stage'),nameEl=$('name'),msg=$('msg'),toast=$('toast');
+let toastTimer=null,busy=false,renderSeq=0,seeking=false;
+const ICON={play:'<path d="M8 5v14l11-7z"/>',pause:'<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>',vol:'<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>',mute:'<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>',stop:'<path d="M6 6h12v12H6z"/>',loop:'<path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>',auto:'<path d="M4 10h12v2H4v-2zm0-4h12v2H4V6zm0 8h8v2H4v-2zm10 2v-8l7 4-7 4z"/>'};
+const PLAY_MODES=[{id:'default',title:'默认：播完停止（点击切换）',icon:'stop'},{id:'loop',title:'单视频循环（点击切换）',icon:'loop'},{id:'auto',title:'自动连播（点击切换）',icon:'auto'}];
+let playMode=0;
+const api=async(path,method='GET',body,contentType)=>{const opt={method,cache:'no-store'};if(body!=null){opt.body=typeof body==='string'?body:JSON.stringify(body);opt.headers={'Content-Type':contentType||(typeof body==='string'?'text/plain':'application/json')}}const r=await fetch(path,opt);const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||('HTTP '+r.status));return data};
+const setTitle=t=>{document.title=t;const el=$('titlebarTitle');if(el)el.textContent=t||'暴风影音';try{window.ipc.postMessage('title:'+t)}catch(_){}};
+const quitApp=()=>{try{window.ipc.postMessage('quit')}catch(_){}};
+const say=(text,ms=3500)=>{toast.textContent=text;toast.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.hidden=true,ms)};
+let nodes=[];
+const currentPath=()=>((files[cur]&&(files[cur].path||files[cur].name))||'');
+const apply=(s,opts)=>{
+  opts=opts||{};
+  const prevPath=currentPath();
+  const prevCur=cur;
+  files=s.files||[];
+  nodes=s.nodes||[];
+  cur=files.length?Math.min(s.current|0,files.length-1):0;
+  if(opts.keepSelected&&selected>=0&&selected<files.length){/* keep */}
+  else selected=files.length?cur:-1;
+  const nextPath=currentPath();
+  // 同一文件仍在播：不重载画面（拖拽排序/收展旁路操作）
+  const sameMedia=opts.soft||(prevPath&&nextPath&&prevPath===nextPath);
+  if(sameMedia){
+    renderPlaylist();
+    updateNavButtons();
+    // 标题/空状态可能仍需轻量同步
+    if(!files.length){document.body.classList.add('empty');msg.hidden=false;clearStage();nameEl.textContent='';$('vbar').classList.add('no-media');setTitle('暴风影音')}
+    else{
+      document.body.classList.remove('empty');msg.hidden=true;
+      const f=files[cur];if(f){nameEl.textContent=f.name;setTitle(f.name+' - 暴风影音')}
+    }
+    return;
+  }
+  mediaRev++;
+  render();
+  renderPlaylist();
+};
+window.refreshPlaylist=()=>api('state').then(s=>apply(s)).catch(()=>{});
+function mediaUrl(i){const f=files[i]||{};const p=encodeURIComponent(f.path||'');return 'media/'+i+'?r='+mediaRev+(p?('&p='+p):'')}
+let playlistOpen=false;
+function setPlaylistOpen(on){
+  playlistOpen=!!on;
+  $('playlist').classList.toggle('open',playlistOpen);
+  document.body.classList.toggle('playlist-open',playlistOpen);
+  $('listToggle').setAttribute('aria-pressed',playlistOpen?'true':'false');
+  saveUiPrefs({playlistOpen:playlistOpen});
+}
+function togglePlaylist(){setPlaylistOpen(!playlistOpen)}
+
+// UI 偏好持久化到后端 %LOCALAPPDATA%/rust-videos/ui-prefs.json（因每次启动端口随机，localStorage 无法跨会话）
+let _uiPrefs={};
+let folderCollapsed={};
+function loadUiPrefsSync(){return _uiPrefs||{}}
+function saveUiPrefs(patch){
+  try{
+    _uiPrefs=Object.assign({},_uiPrefs||{},patch||{});
+    api('ui-prefs','POST',_uiPrefs).catch(()=>{});
+  }catch(_){}
+}
+function applyUiPrefs(prefs){
+  if(!prefs||typeof prefs!=='object')return;
+  _uiPrefs=prefs;
+  if(prefs.folderCollapsed&&typeof prefs.folderCollapsed==='object'){
+    folderCollapsed=prefs.folderCollapsed;
+  }
+  if(prefs.playlistOpen){setPlaylistOpen(true)}
+  // 若列表已渲染则刷新收展状态
+  try{renderPlaylist()}catch(_){}
+}
+let selectedNode=-1;let listCtxMode="file";// file | folder | empty
+function hideListCtx(){$('listCtxMenu').classList.remove('show')}
+function showListCtx(x,y,opt){
+  // opt: {mode:'file',index} | {mode:'folder',node} | {mode:'empty'}
+  opt=opt||{mode:'empty'};
+  listCtxMode=opt.mode||'empty';
+  selectedNode=(opt.node!=null)?opt.node:-1;
+  if(opt.mode==='file'&&opt.index!=null){selected=opt.index;}
+  renderPlaylist();
+  const m=$('listCtxMenu');
+  // 文件夹右键时「播放」针对组内第一项；空白处禁用播放/删除/打开位置
+  const playBtn=$('listCtxPlay'), delBtn=$('listCtxDelete'), revBtn=$('listCtxReveal');
+  const empty=listCtxMode==='empty'||!files.length;
+  if(playBtn){playBtn.disabled=empty;playBtn.style.opacity=empty?.4:1}
+  if(delBtn){
+    const noDel=empty&&listCtxMode!=='folder';
+    delBtn.disabled=noDel;delBtn.style.opacity=noDel?.4:1;
+    delBtn.textContent=listCtxMode==='folder'?'从列表移除文件夹':'从列表移除';
+  }
+  if(revBtn){const ok=listCtxMode==='file'||listCtxMode==='folder';revBtn.disabled=!ok;revBtn.style.opacity=ok?1:.4;revBtn.textContent=listCtxMode==='folder'?'打开文件夹位置':'打开文件位置'}
+  m.style.left=Math.min(x,window.innerWidth-180)+'px';
+  m.style.top=Math.min(y,window.innerHeight-220)+'px';
+  m.classList.add('show');
+}
+let dragInfo=null;// {kind:'file'|'node', from, node?, folderFrom?}
+let dragDidMove=false;
+function clearDragOver(){document.querySelectorAll('.drag-over,.drag-over-after').forEach(el=>{el.classList.remove('drag-over');el.classList.remove('drag-over-after')})}
+function bindDrag(el, info){
+  // info: {kind:'file', index, node?} | {kind:'node', node}
+  el.style.cursor='grab';
+  el.onpointerdown=e=>{
+    if(e.button!==0)return;
+    if(e.target.closest&&e.target.closest('.ftwist'))return; // 点三角只收展
+    dragInfo=Object.assign({},info);
+    dragDidMove=false;
+    el.classList.add('dragging');
+    try{el.setPointerCapture(e.pointerId)}catch(_){}
+    const startY=e.clientY;
+    const onMove=ev=>{
+      if(Math.abs(ev.clientY-startY)>4)dragDidMove=true;
+      clearDragOver();
+      const hit=document.elementFromPoint(ev.clientX,ev.clientY);
+      if(dragInfo.kind==='node'){
+        const folder=hit&&hit.closest&&hit.closest('.plist-folder');
+        if(folder&&folder!==el){
+          const r=folder.getBoundingClientRect();
+          // 上半：插到目标前；下半：插到目标后
+          if(ev.clientY>r.top+r.height/2)folder.classList.add('drag-over-after');
+          else folder.classList.add('drag-over');
+        }
+      }else{
+        const item=hit&&hit.closest&&hit.closest('.plist-item');
+        if(item&&item!==el){
+          const r=item.getBoundingClientRect();
+          if(ev.clientY>r.top+r.height/2)item.classList.add('drag-over-after');
+          else item.classList.add('drag-over');
+        }
+      }
+    };
+    const onUp=ev=>{
+      try{el.releasePointerCapture(e.pointerId)}catch(_){}
+      el.classList.remove('dragging');
+      el.onpointermove=null;el.onpointerup=null;el.onpointercancel=null;
+      const after=!!document.querySelector('.drag-over-after');
+      clearDragOver();
+      const di=dragInfo; dragInfo=null;
+      const moved=dragDidMove;
+      // 下一轮 click 若刚拖过则吞掉，避免文件夹松手展开
+      if(moved){
+        const swallow=ev2=>{ev2.stopPropagation();ev2.preventDefault();el.removeEventListener('click',swallow,true)};
+        el.addEventListener('click',swallow,true);
+        setTimeout(()=>el.removeEventListener('click',swallow,true),0);
+      }
+      if(!moved||!di||busy)return;
+      const hit=document.elementFromPoint(ev.clientX,ev.clientY);
+      if(di.kind==='node'){
+        const folder=hit&&hit.closest&&hit.closest('.plist-folder');
+        if(!folder)return;
+        let to=parseInt(folder.dataset.node,10);
+        const from=di.node;
+        if(isNaN(to)||from===to)return;
+        // 插到目标下方：to 取目标后一位（相对当前列表）
+        if(after) to = to + 1;
+        // from < to 时 remove 后下标会前移，reorder_nodes 内部已处理 to>from → to-1
+        // 但「插到下方」语义：希望最终在目标后面
+        // 例 from=0,to=1 after → to=2；remove0 后 len=1，insert_at=min(2-1,1)=1 → 末尾 OK
+        busy=true;
+        api('reorder','POST',{kind:'node',from,to}).then(s=>apply(s,{soft:true})).catch(err=>say(err.message)).finally(()=>busy=false);
+        return;
+      }
+      // file
+      const item=hit&&hit.closest&&hit.closest('.plist-item');
+      if(!item)return;
+      let to=parseInt(item.dataset.index,10);
+      const from=di.index;
+      if(isNaN(to)||from===to)return;
+      const body={kind:'file',from,to};
+      if(di.node!=null&&item.dataset.node!=null&&String(di.node)===String(item.dataset.node)){
+        body.kind='folder';
+        body.node=di.node|0;
+        body.from=di.folderFrom|0;
+        let fi=parseInt(item.dataset.folderIndex,10);
+        if(after) fi = fi + 1;
+        body.to=fi;
+      }else if(after){
+        body.to=to+1;
+      }
+      busy=true;
+      api('reorder','POST',body).then(s=>apply(s,{soft:true})).catch(err=>say(err.message)).finally(()=>busy=false);
+    };
+    el.onpointermove=onMove;
+    el.onpointerup=onUp;
+    el.onpointercancel=onUp;
+  };
+}
+function renderPlaylist(){
+  const body=$('playlistBody');
+  const count=$('playlistCount');
+  count.textContent=files.length?String(files.length):'0';
+  if(!files.length){body.replaceChildren();return}
+  const frag=document.createDocumentFragment();
+  const makeFileRow=(f,i,child,nodeIdx,folderIdx)=>{
+    const row=document.createElement('div');
+    const cls=['plist-item'];
+    if(child)cls.push('child');
+    if(i===cur)cls.push('active');
+    if(i===selected)cls.push('selected');
+    row.className=cls.join(' ');
+    row.dataset.index=i;
+    if(nodeIdx!=null)row.dataset.node=nodeIdx;
+    if(folderIdx!=null)row.dataset.folderIndex=folderIdx;
+    row.title=(f.path||f.name||'')+'（双击播放 / 拖动排序）';
+    row.innerHTML='<span class="pname"></span>';
+    if(f.missing){row.classList.add('missing');row.innerHTML='<span class="miss">❌</span><span class="pname"></span>';}
+    row.querySelector('.pname').textContent=f.name||'';
+    row.onclick=e=>{e.stopPropagation();hideListCtx();$('ctxMenu').classList.remove('show');selected=i;selectedNode=-1;renderPlaylist()};
+    row.ondblclick=()=>{if(busy)return;if(files[i]&&files[i].missing){say('文件不存在');return}if(i===cur){if(!mediaArmed){mediaArmed=true;allowAutoplay=true;render();const v=currentVideo();if(v)v.play();return}const v=currentVideo();if(v&&v.paused){allowAutoplay=true;v.play()}return}allowAutoplay=true;mediaArmed=true;busy=true;api('goto','POST',{index:i}).then(apply).catch(e=>say(e.message)).finally(()=>busy=false)};
+    bindDrag(row,{kind:'file',index:i,node:nodeIdx,folderFrom:folderIdx});
+    return row;
+  };
+  if(nodes&&nodes.length){
+    nodes.forEach((n,ni)=>{
+      if(n.type==='folder'){
+        const key='folder:'+(n.name||'');
+        const collapsed=!!folderCollapsed[key];
+        const head=document.createElement('div');
+        head.className='plist-folder'+(selectedNode===ni?' selected':'');
+        head.dataset.node=ni;
+        bindDrag(head,{kind:'node',node:ni});
+        head.innerHTML='<span class="ftwist"></span><span class="fname"></span><span class="fcount"></span>';
+        head.querySelector('.ftwist').textContent=collapsed?'▶':'▼';
+        head.querySelector('.fname').textContent='【'+n.name+'】';
+        head.querySelector('.fcount').textContent='（'+(n.count!=null?n.count:(n.children||[]).length)+'）';
+        head.onclick=e=>{e.stopPropagation();hideListCtx();$('ctxMenu').classList.remove('show');if(dragDidMove||head.classList.contains('dragging'))return;folderCollapsed[key]=!folderCollapsed[key];saveUiPrefs({folderCollapsed:folderCollapsed});renderPlaylist()};
+        frag.appendChild(head);
+        if(!collapsed){
+          (n.children||[]).forEach((c,fi)=>{
+            frag.appendChild(makeFileRow(c,c.index|0,true,ni,fi));
+          });
+        }
+      }else{
+        frag.appendChild(makeFileRow(n,n.index|0,false,ni,null));
+      }
+    });
+  }else{
+    files.forEach((f,i)=>frag.appendChild(makeFileRow(f,i,false,null,null)));
+  }
+  body.replaceChildren(frag);
+  const focus=body.querySelector('.plist-item.selected')||body.querySelector('.plist-item.active');
+  if(focus)focus.scrollIntoView({block:'nearest'});
+}
+function fmtTime(sec){if(!isFinite(sec)||sec<0)sec=0;sec=Math.floor(sec);const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;if(h>0)return h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');return m+':'+String(s).padStart(2,'0')}
+function fmtTimeMmss(sec){if(!isFinite(sec)||sec<0)sec=0;sec=Math.floor(sec);const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;if(h>0)return String(h).padStart(2,'0')+String(m).padStart(2,'0')+String(s).padStart(2,'0');return String(m).padStart(2,'0')+String(s).padStart(2,'0')}
+function stemName(name){const n=(name||'截图').replace(/\.[^.]+$/,'');return n.replace(/[\\/:*?"<>|]/g,'_').trim()||'截图'}
+function clearStage(){
+  stage.querySelectorAll('video,img').forEach(el=>{
+    if(el.tagName==='VIDEO'){try{el.pause();el.removeAttribute('src');el.load()}catch(_){}}
+    el.remove();
+  });
+}
+function currentVideo(){return stage.querySelector('video')}
+function updatePlayIcon(){const v=currentVideo();const playing=v&&!v.paused;$('vplayIcon').innerHTML=ICON[playing?'pause':'play'];$('vplay').title=playing?'暂停':'播放'}
+function updateNavButtons(){
+  const prev=$('vprev'),next=$('vnext');
+  if(!prev||!next)return;
+  const has=files.length>0;
+  prev.disabled=!has||cur<=0;
+  next.disabled=!has||cur>=files.length-1;
+}
+function updateMuteIcon(){const v=currentVideo();const muted=!v||v.muted||v.volume===0;$('vmuteIcon').innerHTML=ICON[muted?'mute':'vol']}
+function updatePlayModeBtn(){const m=PLAY_MODES[playMode];$('playModeBtn').title=m.title;$('playModeBtn').setAttribute('aria-label',m.title);$('playModeIcon').innerHTML=ICON[m.icon];$('playModeBtn').classList.toggle('active',m.id!=='default');const v=currentVideo();if(v)v.loop=(m.id==='loop')}
+function cyclePlayMode(){playMode=(playMode+1)%PLAY_MODES.length;updatePlayModeBtn()}
+function paintSeek(){const el=$('vseek');const pct=((el.value-el.min)/(el.max-el.min))*100;el.style.setProperty('--seek-pct',pct+'%')}
+function paintVol(){const el=$('vvol');const pct=((el.value-el.min)/(el.max-el.min))*100;el.style.setProperty('--vol-pct',pct+'%')}
+function syncSeek(){if(seeking)return;const v=currentVideo();if(!v||!v.duration)return;$('vseek').value=Math.round((v.currentTime/v.duration)*1000);$('vtime').textContent=fmtTime(v.currentTime)+' / '+fmtTime(v.duration);paintSeek()}
+function render(){const seq=++renderSeq;if(!files.length){document.body.classList.add('empty');msg.hidden=false;clearStage();nameEl.textContent='';$('vbar').classList.add('no-media');updateNavButtons();setTitle('暴风影音');return}document.body.classList.remove('empty');msg.hidden=true;if(files[cur]&&files[cur].missing){skipToNextValid();return}const f=files[cur];nameEl.textContent=f.name;setTitle(f.name+' - 暴风影音');$('vbar').classList.toggle('no-media',f.kind!=='video');updateNavButtons();clearStage();
+// 启动仅恢复列表：未「点播」前不挂载画面
+if(!mediaArmed){updatePlayIcon();updateMuteIcon();updatePlayModeBtn();$('vtime').textContent='0:00 / 0:00';$('vseek').value=0;paintSeek();return}
+if(f.kind==='video'){const v=document.createElement('video');v.src=mediaUrl(cur);v.controls=false;v.autoplay=!!allowAutoplay;v.playsInline=true;v.addEventListener('play',updatePlayIcon);v.addEventListener('pause',updatePlayIcon);v.addEventListener('volumechange',updateMuteIcon);v.addEventListener('timeupdate',syncSeek);v.addEventListener('loadedmetadata',()=>{if(seq!==renderSeq)return;syncSeek();updatePlayModeBtn()});v.addEventListener('ended',()=>{const m=PLAY_MODES[playMode];if(m.id==='auto'&&cur<files.length-1){go(1)}else{updatePlayIcon()}});
+v.addEventListener('error',()=>{
+  // 文件已删或无法播放：标缺失并跳下一个有效项
+  if(files[cur])files[cur].missing=true;
+  renderPlaylist();
+  say('文件不存在，已跳过');
+  skipToNextValid();
+});stage.appendChild(v);updatePlayIcon();updateMuteIcon();updatePlayModeBtn()}else{const img=document.createElement('img');img.src=mediaUrl(cur);img.alt=f.name;stage.appendChild(img)}}
+function skipToNextValid(){
+  if(!files.length)return;
+  let i=cur;
+  for(let n=0;n<files.length;n++){
+    i=(i+1)%files.length;
+    if(!files[i].missing){
+      if(i===cur){clearStage();updatePlayIcon();return}
+      allowAutoplay=true;mediaArmed=true;
+      if(busy)return;
+      busy=true;
+      api('goto','POST',{index:i}).then(apply).catch(e=>say(e.message)).finally(()=>busy=false);
+      return;
+    }
+  }
+  // 全部失效：停在列表，不循环 render
+  clearStage();
+  nameEl.textContent='(无可用文件)';
+  updatePlayIcon();
+}
+async function go(d){if(busy||!files.length)return;const n=cur+d;if(n<0||n>=files.length)return;allowAutoplay=true;mediaArmed=true;busy=true;try{const s=await api('nav','POST',{delta:d});apply(s)}catch(e){say(e.message)}finally{busy=false}}
+async function openFile(){if(busy)return;busy=true;try{const s=await api('open','POST');if(s&&s.files){allowAutoplay=true;mediaArmed=true;apply(s)}}catch(e){say(e.message)}finally{busy=false}}
+async function openFolder(){if(busy)return;busy=true;try{const s=await api('open-folder','POST');if(s&&s.files){allowAutoplay=true;mediaArmed=true;apply(s)}}catch(e){say(e.message)}finally{busy=false}}
+async function delFile(){if(busy||!files.length)return;busy=true;try{const s=await api('delete','POST');apply(s);say('已从列表移除')}catch(e){say(e.message)}finally{busy=false}}
+function hideAppMenu(){$('appMenu').classList.remove('show');$('logoBtn').classList.remove('active')}
+function showAppMenu(){const btn=$('logoBtn'),m=$('appMenu');const r=btn.getBoundingClientRect();m.style.left=Math.max(8,r.left)+'px';m.style.top=(r.bottom+4)+'px';m.classList.add('show');btn.classList.add('active')}
+let fsOn=false;
+function setFullscreen(on){
+  on=!!on;
+  if(on===fsOn)return;
+  fsOn=on;
+  document.body.classList.toggle('is-fs',fsOn);
+  const ctx=$('ctxFs');
+  if(ctx)ctx.textContent=fsOn?'退出全屏':'全屏';
+  // 全屏时收起列表，避免半边黑
+  try{window.ipc.postMessage(fsOn?'fullscreen-on':'fullscreen-off')}catch(_){}
+}
+function toggleFs(){setFullscreen(!fsOn)}
+function startWindowDrag(e){
+  if(e.button!==0)return;
+  // 交互控件上不拖
+  if(e.target.closest('button,input,a,select,textarea,#playlist,#appMenu,#ctxMenu,#settingsPanel,#editPanel,#propsPanel'))return;
+  // 必须先移动一小段再拖，否则会吞掉双击（无法全屏）
+  const x0=e.clientX,y0=e.clientY;
+  const onMove=ev=>{
+    if(Math.abs(ev.clientX-x0)>5||Math.abs(ev.clientY-y0)>5){
+      cleanup();
+      try{window.ipc.postMessage('drag')}catch(_){}
+    }
+  };
+  const cleanup=()=>{
+    window.removeEventListener('mousemove',onMove);
+    window.removeEventListener('mouseup',cleanup);
+  };
+  window.addEventListener('mousemove',onMove);
+  window.addEventListener('mouseup',cleanup);
+}
+
+function onKey(e){if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA')return;const k=e.key;if(k==='ArrowLeft'||k==='ArrowRight'){e.preventDefault();const v=currentVideo();if(v&&isFinite(v.duration)){v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+(k==='ArrowLeft'?-5:5)));syncSeek()}}else if(k==='Home'){e.preventDefault();if(cur!==0){allowAutoplay=true;mediaArmed=true;busy=true;api('goto','POST',{index:0}).then(apply).catch(e=>say(e.message)).finally(()=>busy=false)}}else if(k==='End'){e.preventDefault();if(cur!==files.length-1){allowAutoplay=true;mediaArmed=true;busy=true;api('goto','POST',{index:files.length-1}).then(apply).catch(e=>say(e.message)).finally(()=>busy=false)}}else if(k==='Delete'){e.preventDefault();delFile()}else if(k===' '||k==='Spacebar'){e.preventDefault();const v=currentVideo();if(v){if(v.paused)v.play();else v.pause()}}else if(k==='Enter'){e.preventDefault();toggleFs()}else if(k==='l'||k==='L'){e.preventDefault();togglePlaylist()}else if(k==='Escape'){if($('appMenu').classList.contains('show')){hideAppMenu();return}if(playlistOpen){setPlaylistOpen(false);return}if($('propsPanel')&&!$('propsPanel').hidden){$('propsPanel').hidden=true;return}if(!$('settingsPanel').hidden){$('settingsPanel').hidden=true;return}if(!$('editPanel').hidden){$('editPanel').hidden=true;return}if(fsOn||document.fullscreenElement){if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});setFullscreen(false);return}}else if((e.ctrlKey||e.metaKey)&& (k==='o'||k==='O')){e.preventDefault();openFile()}else if(k==='F5'){e.preventDefault();captureFrame()}}
+function captureFrame(){const v=currentVideo();if(!v||!v.videoWidth){say('当前不是视频或尚未加载');return}const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);const name=stemName(files[cur]&&files[cur].name)+'_'+fmtTimeMmss(v.currentTime)+'.png';c.toBlob(async blob=>{if(!blob)return;try{const buf=await blob.arrayBuffer();await api('save-frame','POST',buf,'application/octet-stream');say('已保存截图：'+name)}catch(e){say(e.message)}},'image/png')}
+$('openMain').onclick=openFile;
+$('vplay').onclick=()=>{
+  if(!files.length)return;
+  if(!mediaArmed){mediaArmed=true;allowAutoplay=true;render();const v=currentVideo();if(v){v.play()}return}
+  const v=currentVideo();if(!v)return;if(v.paused)v.play();else v.pause()
+};
+$('vmute').onclick=()=>{const v=currentVideo();if(!v)return;v.muted=!v.muted;updateMuteIcon()};
+$('vvol').oninput=()=>{paintVol();const v=currentVideo();if(!v)return;v.volume=$('vvol').value/100;v.muted=false;updateMuteIcon()};
+$('vseek').oninput=()=>{seeking=true;paintSeek();const v=currentVideo();if(v&&v.duration)v.currentTime=($('vseek').value/1000)*v.duration};$('vseek').onchange=()=>{seeking=false;paintSeek()};
+$('playModeBtn').onclick=cyclePlayMode;
+$('settingsClose').onclick=()=>$('settingsPanel').hidden=true;
+// 必须在遮罩上按下并在遮罩上松开才关闭，避免面板内按下、外面松开误关
+(function(){
+  let downOnBackdrop=false;
+  const panel=$('settingsPanel');
+  panel.addEventListener('mousedown',e=>{downOnBackdrop=(e.target===panel)});
+  panel.addEventListener('mouseup',e=>{
+    if(downOnBackdrop&&e.target===panel)panel.hidden=true;
+    downOnBackdrop=false;
+  });
+  panel.addEventListener('mouseleave',()=>{/* 拖出窗口不算 */});
+})();
+// 编辑面板同样处理
+(function(){
+  let downOnBackdrop=false;
+  const panel=$('editPanel');
+  if(!panel)return;
+  panel.addEventListener('mousedown',e=>{downOnBackdrop=(e.target===panel)});
+  panel.addEventListener('mouseup',e=>{
+    if(downOnBackdrop&&e.target===panel)panel.hidden=true;
+    downOnBackdrop=false;
+  });
+  const closeBtn=$('editClose');
+  if(closeBtn)closeBtn.onclick=()=>{panel.hidden=true};
+})();
+$('logoBtn').onclick=e=>{e.stopPropagation();if($('appMenu').classList.contains('show'))hideAppMenu();else showAppMenu()};
+$('winMin').onclick=()=>{try{window.ipc.postMessage('minimize')}catch(_){}};
+$('winMax').onclick=()=>{try{window.ipc.postMessage('maximize')}catch(_){}};
+$('winClose').onclick=()=>quitApp();
+$('titlebarDrag').addEventListener('mousedown',startWindowDrag);
+// 视频区、底栏空白处按住拖拽移动窗口
+stage.addEventListener('mousedown',startWindowDrag);
+$('vbar').addEventListener('mousedown',startWindowDrag);
+// 左键双击画面切换全屏（绑在 stage，video 事件会冒泡上来）
+stage.addEventListener('dblclick',e=>{
+  if(e.button!==0&&e.button!==undefined)return;
+  if(e.target.closest('button,input,a,#playlist,#top'))return;
+  e.preventDefault();
+  toggleFs();
+});
+$('menuOpenFile').onclick=()=>{hideAppMenu();openFile()};
+$('menuOpenFolder').onclick=()=>{hideAppMenu();openFolder()};
+function verParts(v){return String(v||'').replace(/^v/i,'').split(/[^0-9]+/).filter(Boolean).map(n=>parseInt(n,10)||0)}
+function verCmp(a,b){const A=verParts(a),B=verParts(b),n=Math.max(A.length,B.length);for(let i=0;i<n;i++){const x=A[i]||0,y=B[i]||0;if(x>y)return 1;if(x<y)return -1}return 0}
+$('menuCheckUpdate').onclick=async()=>{
+  hideAppMenu();
+  say('正在检查更新…',2000);
+  try{
+    const r=await fetch('https://api.github.com/repos/setsuodu/rust-videos/releases/latest',{headers:{'Accept':'application/vnd.github+json'}});
+    if(!r.ok)throw new Error('GitHub HTTP '+r.status);
+    const d=await r.json();
+    const latest=(d.tag_name||d.name||'').replace(/^v/i,'');
+    const cur=String(APP_VERSION||'').replace(/^v/i,'');
+    if(!latest){say('当前版本 '+cur+'，无法解析远端版本');return}
+    if(verCmp(latest,cur)>0){
+      const url=d.html_url||'https://github.com/setsuodu/rust-videos/releases';
+      say('发现新版本 v'+latest+'（当前 v'+cur+'）→ '+url,8000);
+    }else{
+      say('当前版本 v'+cur+'，已是最新');
+    }
+  }catch(e){
+    say('检查更新失败：'+e.message+'（可打开 GitHub Releases）',5000);
+  }
+};
+$('menuAbout').onclick=()=>{hideAppMenu();$('appVersion').textContent=APP_VERSION;$('settingsPanel').hidden=false};
+$('menuQuit').onclick=()=>{hideAppMenu();quitApp()};
+document.addEventListener('click',e=>{if(!e.target.closest('#logoBtn')&&!e.target.closest('#appMenu'))hideAppMenu()});
+if($('editClose'))$('editClose').onclick=()=>$('editPanel').hidden=true;
+$('editPanel').onclick=e=>{if(e.target===$('editPanel'))$('editPanel').hidden=true};
+async function runEdit(path,body){$('editBusy').hidden=false;$('editBusyText').textContent='正在处理…';try{const r=await api(path,'POST',body);say(r.message||'完成');if(r.state)apply(r.state)}catch(e){say(e.message)}finally{$('editBusy').hidden=true}}
+$('trimUseCurStart').onclick=()=>{const v=currentVideo();if(v)$('trimStart').value=v.currentTime.toFixed(1)};
+$('trimUseCurEnd').onclick=()=>{const v=currentVideo();if(v)$('trimEnd').value=v.currentTime.toFixed(1)};
+$('runTrim').onclick=()=>runEdit('edit/trim',{start:parseFloat($('trimStart').value)||0,end:$('trimEnd').value===''?null:parseFloat($('trimEnd').value)});
+$('runBitrate').onclick=()=>runEdit('edit/bitrate',{kbps:parseInt($('bitrateKbps').value,10)||3000});
+$('runSplit').onclick=()=>runEdit('edit/split',{side:$('splitSide').value});
+$('runAspect').onclick=()=>runEdit('edit/aspect',{ratio:$('aspectRatio').value,mode:$('aspectMode').value});
+let ctxTarget=null;
+document.addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  hideListCtx();$('ctxMenu').classList.remove('show');
+  const item=e.target.closest&&e.target.closest('.plist-item');
+  const folder=e.target.closest&&e.target.closest('.plist-folder');
+  const inList=e.target.closest&&e.target.closest('#playlist');
+  if(item){
+    const i=parseInt(item.dataset.index,10);
+    if(!isNaN(i))showListCtx(e.clientX,e.clientY,{mode:'file',index:i});
+    return;
+  }
+  if(folder){
+    const ni=parseInt(folder.dataset.node,10);
+    if(!isNaN(ni))showListCtx(e.clientX,e.clientY,{mode:'folder',node:ni});
+    return;
+  }
+  if(inList){
+    // 播放列表空白处
+    showListCtx(e.clientX,e.clientY,{mode:'empty'});
+    return;
+  }
+  if(e.target.closest&&e.target.closest('#stage')){
+    const ctx=$('ctxFs');if(ctx)ctx.textContent=fsOn?'退出全屏':'全屏';
+    $('ctxMenu').style.left=e.clientX+'px';$('ctxMenu').style.top=e.clientY+'px';$('ctxMenu').classList.add('show');
+  }
+},true);
+document.addEventListener('click',()=>{$('ctxMenu').classList.remove('show');hideListCtx()});
+document.addEventListener('mousedown',e=>{
+  const lc=$('listCtxMenu'),cm=$('ctxMenu');
+  if(lc&&lc.classList.contains('show')&&!lc.contains(e.target))hideListCtx();
+  if(cm&&cm.classList.contains('show')&&!cm.contains(e.target))cm.classList.remove('show');
+},true);
+function fmtSize(n){n=Number(n)||0;if(n<1024)return n+' B';if(n<1048576)return(n/1024).toFixed(1)+' KB';if(n<1073741824)return(n/1048576).toFixed(2)+' MB';return(n/1073741824).toFixed(2)+' GB'}
+function fmtDur(sec){if(!isFinite(sec)||sec<0)return '—';sec=Math.floor(sec);const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;if(h>0)return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')}
+async function showPropsPanel(){
+  if(!files.length){say('当前无文件');return}
+  try{
+    const p=await api('props?i='+cur);
+    $('propsName').textContent=p.name||'—';
+    $('propsType').textContent=(p.type_label||'视频')+(p.ext?(' / '+p.ext.toUpperCase()):'');
+    $('propsSize').textContent=fmtSize(p.size);
+    $('propsPath').textContent=p.path||p.dir||'—';
+    const v=currentVideo();
+    let w=0,h=0,dur=0;
+    if(v){w=v.videoWidth||0;h=v.videoHeight||0;dur=v.duration||0}
+    if(w&&h){
+      const ratio=(w/h).toFixed(2);
+      $('propsRes').textContent=w+'×'+h+' ('+ratio+':1)';
+    }else $('propsRes').textContent='—';
+    $('propsDur').textContent=fmtDur(dur);
+    // 帧率：浏览器拿不到精确值时显示 —
+    $('propsFps').textContent='—';
+    // 码率估算：文件大小*8/时长
+    if(p.size&&dur&&isFinite(dur)&&dur>0){
+      const kbps=Math.round((p.size*8/dur)/1000);
+      $('propsBitrate').textContent=kbps>=1000?(kbps/1000).toFixed(2)+' Mbps':kbps+' kbps';
+    }else $('propsBitrate').textContent='—';
+    $('propsPanel').hidden=false;
+  }catch(e){say(e.message)}
+}
+$('ctxFs').onclick=()=>{$('ctxMenu').classList.remove('show');toggleFs()};
+$('ctxOpen').onclick=()=>{$('ctxMenu').classList.remove('show');openFile()};
+$('ctxOpenFolder').onclick=()=>{$('ctxMenu').classList.remove('show');openFolder()};
+$('ctxProps').onclick=()=>{$('ctxMenu').classList.remove('show');showPropsPanel()};
+$('propsClose').onclick=()=>$('propsPanel').hidden=true;
+(function(){
+  let downOnBackdrop=false;
+  const panel=$('propsPanel');
+  if(!panel)return;
+  panel.addEventListener('mousedown',e=>{downOnBackdrop=(e.target===panel)});
+  panel.addEventListener('mouseup',e=>{
+    if(downOnBackdrop&&e.target===panel)panel.hidden=true;
+    downOnBackdrop=false;
+  });
+})();
+$('listCtxPlay').onclick=()=>{hideListCtx();if(busy||!files.length)return;
+  let i=selected;
+  if(listCtxMode==='folder'&&selectedNode>=0&&nodes[selectedNode]&&nodes[selectedNode].children&&nodes[selectedNode].children.length){
+    i=nodes[selectedNode].children[0].index|0}
+  if(i==null||i<0)i=cur;
+  if(i===cur){if(!mediaArmed){mediaArmed=true;allowAutoplay=true;render();const v=currentVideo();if(v)v.play();return}const v=currentVideo();if(v&&v.paused){allowAutoplay=true;v.play()}return}
+  allowAutoplay=true;mediaArmed=true;busy=true;api('goto','POST',{index:i}).then(apply).catch(e=>say(e.message)).finally(()=>busy=false)};
+$('listCtxDelete').onclick=async()=>{hideListCtx();if(busy)return;
+  if(listCtxMode==='folder'&&selectedNode>=0){
+    busy=true;try{const s=await api('delete-folder','POST',{node:selectedNode});apply(s);selectedNode=-1;say('已从列表移除文件夹')}catch(e){say(e.message)}finally{busy=false};return}
+  if(listCtxMode==='empty'||selected<0||!files.length)return;
+  busy=true;try{const s=await api('delete?i='+selected,'POST');apply(s);say('已从列表移除')}catch(e){say(e.message)}finally{busy=false}};
+$('listCtxSave').onclick=async()=>{hideListCtx();try{const r=await api('save-list','POST');if(r&&r.ok)say('列表已保存：'+(r.path||''));else if(r&&r.cancelled){/*用户取消*/}else say('已保存')}catch(e){say(e.message)}};
+$('listCtxClear').onclick=async()=>{hideListCtx();if(busy)return;if(!files.length)return;busy=true;try{const s=await api('clear','POST');apply(s);say('列表已清空')}catch(e){say(e.message)}finally{busy=false}};
+$('listCtxReveal').onclick=async()=>{hideListCtx();try{if(listCtxMode==='folder'&&selectedNode>=0){await api('reveal?node='+selectedNode,'POST')}else{await api('reveal?i='+(selected>=0?selected:cur),'POST')}}catch(e){say(e.message)}};
+$('listToggle').onclick=togglePlaylist;
+$('playlistClose').onclick=()=>setPlaylistOpen(false);
+$('vprev').onclick=()=>go(-1);
+$('vnext').onclick=()=>go(1);
+document.addEventListener('fullscreenchange',()=>{
+  if(document.fullscreenElement){
+    document.exitFullscreen().catch(()=>{});
+  }
+});
+window.addEventListener('keydown',onKey);
+// 滚轮调音量（不在列表上抢滚动）；不再用来切集
+window.addEventListener('wheel',e=>{
+  // 列表 / 关于 / 编辑 面板内滚轮只滚动内容，不调音量
+  if(e.target.closest('#playlist,#settingsPanel,#editPanel,#propsPanel,.settings-card,.edit-card,.props-card'))return;
+  if(Math.abs(e.deltaY)<4)return;
+  const v=currentVideo();
+  if(!v)return;
+  e.preventDefault();
+  const next=Math.max(0,Math.min(1,v.volume+(e.deltaY>0?-0.05:0.05)));
+  v.volume=next;v.muted=false;
+  $('vvol').value=Math.round(next*100);
+  updateMuteIcon();
+},{passive:false});
+let idleT=null;function bumpIdle(){document.body.classList.remove('idle');clearTimeout(idleT);idleT=setTimeout(()=>document.body.classList.add('idle'),2500)}window.addEventListener('mousemove',bumpIdle);window.addEventListener('mousedown',bumpIdle);bumpIdle();
+paintSeek();paintVol();
+// 恢复上次：播放列表开合 + 文件夹收展（后端持久化）
+api('ui-prefs').then(prefs=>{
+  applyUiPrefs(prefs||{});
+}).catch(()=>{}).finally(()=>{
+  api('state').then(apply).catch(e=>say(e.message));
+});
+})();
+</script>
+</body>
+</html>
