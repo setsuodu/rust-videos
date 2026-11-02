@@ -140,11 +140,16 @@ pub fn run(initial: State) {
         .with_drag_drop_handler(move |event| {
             if let DragDropEvent::Drop { paths, .. } = event {
                 if !paths.is_empty() {
-                    let mut s = drop_state.lock().unwrap();
-                    if add_paths_to_playlist(&mut s, &paths) {
-                        save_playlist(&s);
-                        let _ = drop_proxy.send_event("__refresh__".to_string());
-                    }
+                    // 扫盘/去重放到后台线程，避免拖入时卡死 UI
+                    let state = Arc::clone(&drop_state);
+                    let proxy = drop_proxy.clone();
+                    thread::spawn(move || {
+                        let mut s = state.lock().unwrap();
+                        if add_paths_to_playlist(&mut s, &paths) {
+                            save_playlist(&s);
+                            let _ = proxy.send_event("__refresh__".to_string());
+                        }
+                    });
                 }
             }
             // true = 吃掉系统默认（Windows 上返回值本身被忽略，但设 handler 会接管拖放）

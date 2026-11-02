@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -349,18 +350,25 @@ fn collect_media_recursive(root: &Path) -> Vec<PathBuf> {
             return;
         };
         for entry in entries.filter_map(|e| e.ok()) {
+            // 用 DirEntry::file_type，避免对每个条目再 stat 一次
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
             let p = entry.path();
-            if p.is_dir() {
+            if ft.is_dir() {
                 if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with('.')
                         || name.eq_ignore_ascii_case("$RECYCLE.BIN")
                         || name.eq_ignore_ascii_case("System Volume Information")
+                        || name.eq_ignore_ascii_case("node_modules")
+                        || name.eq_ignore_ascii_case("Windows")
                     {
                         continue;
                     }
                 }
                 walk(&p, out);
-            } else if p.is_file() && kind_of(&p).is_some() {
+            } else if ft.is_file() && kind_of(&p).is_some() {
                 out.push(p);
             }
         }
@@ -371,14 +379,33 @@ fn collect_media_recursive(root: &Path) -> Vec<PathBuf> {
 
 fn sort_media(files: &mut [PathBuf]) {
     files.sort_by(|a, b| {
-        let an = a.to_string_lossy().to_lowercase();
-        let bn = b.to_string_lossy().to_lowercase();
-        natord::compare(&an, &bn)
+        let an = a.to_string_lossy();
+        let bn = b.to_string_lossy();
+        // 只对文件名做自然排序，避免整条路径反复 to_lowercase 分配
+        let an = an.rsplit(['\\', '/']).next().unwrap_or(&an);
+        let bn = bn.rsplit(['\\', '/']).next().unwrap_or(&bn);
+        natord::compare_ignore_case(an, bn)
     });
+}
+
+/// 用于 HashSet 去重的轻量路径键（不碰磁盘）
+fn path_key(p: &Path) -> String {
+    let s = p.to_string_lossy();
+    // Windows 路径大小写不敏感，统一小写 + 反斜杠
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        let c = if c == '/' { '\\' } else { c };
+        out.push(c.to_ascii_lowercase());
+    }
+    out
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
     if a == b {
+        return true;
+    }
+    // 先做轻量字符串比较，绝大多数情况直接命中，避免 canonicalize 系统调用
+    if path_key(a) == path_key(b) {
         return true;
     }
     match (dunce::canonicalize(a), dunce::canonicalize(b)) {
@@ -428,14 +455,15 @@ pub fn load_path(path: &Path) -> Option<State> {
     Some(state)
 }
 
-/// 【打开文件】：新文件挂到播放列表根节点；已在列表则只选中并播放
+/// 打开文件：新文件挂到播放列表根节点；已在列表则只选中并播放
 pub fn add_file_to_playlist(state: &mut State, path: PathBuf) -> bool {
     if kind_of(&path).is_none() || !path.is_file() {
         return false;
     }
     let path = dunce::canonicalize(&path).unwrap_or(path);
+    let key = path_key(&path);
 
-    if let Some(i) = state.files.iter().position(|f| same_path(f, &path)) {
+    if let Some(i) = state.files.iter().position(|f| path_key(f) == key) {
         state.current = i;
         return true;
     }
@@ -451,7 +479,7 @@ pub fn add_file_to_playlist(state: &mut State, path: PathBuf) -> bool {
     true
 }
 
-/// 【打开文件夹】：根节点添加【文件夹名】节点；递归视频全部挂在该节点下（禁止套目录）
+/// 【打开文件夹】：根节点添加文件夹名节点；递归视频全部挂在该节点下（禁止套目录）
 pub fn add_folder_to_playlist(state: &mut State, root: &Path) -> bool {
     if !root.is_dir() {
         return false;
@@ -466,7 +494,9 @@ pub fn add_folder_to_playlist(state: &mut State, root: &Path) -> bool {
     }
     sort_media(&mut found);
 
-    found.retain(|p| !state.files.iter().any(|f| same_path(f, p)));
+    // O(N+M) HashSet 去重，不再对每对路径做 canonicalize
+    let existing: HashSet<String> = state.files.iter().map(|p| path_key(p)).collect();
+    found.retain(|p| !existing.contains(&path_key(p)));
     if found.is_empty() {
         return false;
     }
