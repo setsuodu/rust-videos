@@ -587,7 +587,7 @@ function renderPlaylist(){
         bindDrag(head,{kind:'node',node:ni});
         head.innerHTML='<span class="ftwist"></span><span class="fname"></span><span class="fcount"></span>';
         head.querySelector('.ftwist').textContent=collapsed?'▶':'▼';
-        head.querySelector('.fname').textContent='【'+n.name+'】';
+        head.querySelector('.fname').textContent=n.name||'';
         head.querySelector('.fcount').textContent='（'+(n.count!=null?n.count:(n.children||[]).length)+'）';
         head.onclick=e=>{e.stopPropagation();hideListCtx();$('ctxMenu').classList.remove('show');if(dragDidMove||head.classList.contains('dragging'))return;folderCollapsed[key]=!folderCollapsed[key];saveUiPrefs({folderCollapsed:folderCollapsed});renderPlaylist()};
         frag.appendChild(head);
